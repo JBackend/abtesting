@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect } from 'react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -13,19 +13,13 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 import { useCases, calculateSampleSize, analyzeResults, sequentialAnalysis, validateInputs } from '../utils/abTestingUtils'
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, Legend, ResponsiveContainer } from 'recharts'
 import { ErrorBoundary } from 'react-error-boundary'
+import mixpanel from 'mixpanel-browser'
+import { useSession, signIn, signOut } from 'next-auth/react'
 
-// Add these type definitions at the top of the file
 type TestResults = {
-  controlRate: number;
-  variantRate: number;
-  confidenceIntervals: {
-    control: [number, number];
-    variant: [number, number];
-  };
-  relativeImprovement: number;
+  sampleSize: number;
   pValue: number;
-  significant: boolean;
-  conclusion: string;
+  relativeImprovement: number;
 }
 
 type SequentialAnalysis = Array<{
@@ -38,14 +32,9 @@ type SequentialAnalysis = Array<{
 function isValidTestResults(results: any): results is TestResults {
   return (
     typeof results === 'object' &&
-    typeof results.controlRate === 'number' &&
-    typeof results.variantRate === 'number' &&
-    Array.isArray(results.confidenceIntervals?.control) &&
-    Array.isArray(results.confidenceIntervals?.variant) &&
-    typeof results.relativeImprovement === 'number' &&
+    typeof results.sampleSize === 'number' &&
     typeof results.pValue === 'number' &&
-    typeof results.significant === 'boolean' &&
-    typeof results.conclusion === 'string'
+    typeof results.relativeImprovement === 'number'
   )
 }
 
@@ -65,6 +54,14 @@ const LoadingSpinner = () => (
   </div>
 )
 
+// Add the generateTestData function
+const generateTestData = (size: number, baseRate: number): number[] => {
+  const noise = 0.1;
+  return Array(size).fill(0).map(() => 
+    Math.random() < (baseRate * (1 + (Math.random() - 0.5) * noise)) ? 1 : 0
+  );
+};
+
 export default function ABTestingFrameworkWrapper() {
   return (
     <ErrorBoundary fallback={<div>Something went wrong</div>}>
@@ -74,13 +71,14 @@ export default function ABTestingFrameworkWrapper() {
 }
 
 export function ABTestingFramework() {
+  const { data: session, status } = useSession();
   const [params, setParams] = useState({
     baselineRate: 0.1,
     mde: 0.05,
     confidence: 0.95,
     power: 0.8
   })
-  const [sampleSize, setSampleSize] = useState(0)
+  const [sampleSize, setSampleSize] = useState<number>(0)
   const [results, setResults] = useState<null | {
     controlRate: number;
     variantRate: number;
@@ -93,11 +91,7 @@ export function ABTestingFramework() {
     significant: boolean;
     conclusion: string;
   }>(null)
-  const [sequentialData, setSequentialData] = useState<Array<{
-    sampleSize: number;
-    pValue: number;
-    relativeImprovement: number;
-  }>>([])
+  const [sequentialData, setSequentialData] = useState<TestResults[]>([])
   const [activeTab, setActiveTab] = useState('setup')
   const [errors, setErrors] = useState<{
     baselineRate?: string;
@@ -110,18 +104,70 @@ export function ABTestingFramework() {
   const [isRunningTest, setIsRunningTest] = useState(false)
   const [isLoadingResults, setIsLoadingResults] = useState(false)
 
+  useEffect(() => {
+    // Initialize Mixpanel
+    mixpanel.init('acd65c75b29612117236847e0db6e5e9', {
+      debug: process.env.NODE_ENV !== 'production',
+      track_pageview: true,
+      persistence: 'localStorage'
+    });
+
+    // If user is authenticated, identify them
+    if (session?.user?.id) {
+      mixpanel.identify(session.user.id);
+      mixpanel.people.set({
+        '$email': session.user.email,
+        '$name': session.user.name,
+        '$avatar': session.user.image,
+        'last_login': new Date().toISOString(),
+      });
+
+      // Track login
+      mixpanel.track('User Logged In', {
+        userId: session.user.id,
+        email: session.user.email
+      });
+    }
+  }, [session]);
+
+  // Track tab changes
+  const handleTabChange = useCallback((tab: string) => {
+    setActiveTab(tab);
+  }, [activeTab]);
+
+  // Track input changes
   const handleInputChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    const { name, value } = e.target
-    const numValue = parseFloat(value)
+    const { name, value } = e.target;
+    // Convert string to number explicitly
+    const numValue = Number(value);
     
-    if (isNaN(numValue)) {
-      setErrors(prev => ({ ...prev, [name]: 'Please enter a valid number' }))
-      return
+    const error = validateInputs(name, numValue, params, errors);
+    if (error) {
+      setErrors(prev => ({ ...prev, [name]: error }));
+      return;
     }
     
-    setParams(prev => ({ ...prev, [name]: numValue }))
-    setErrors(prev => ({ ...prev, [name]: null }))
-  }, [])
+    setParams(prev => ({ ...prev, [name]: numValue }));
+    setErrors(prev => ({ ...prev, [name]: undefined }));
+  }, [validateInputs]);
+
+  // Track sequential analysis updates
+  const handleSequentialUpdate = useCallback((data: SequentialAnalysis) => {
+    setSequentialData(data);
+  }, []);
+
+  // Track test reset
+  const handleReset = useCallback(() => {
+    setSampleSize(0);
+    setResults(null);
+    setSequentialData([]);
+    setActiveTab('setup');
+  }, []);
+
+  // Track export actions
+  const handleExport = useCallback(() => {
+    // ... existing export logic ...
+  }, [results, sequentialData]);
 
   const handleUseCaseSelect = useCallback((useCase: { baselineRate: number; mde: number }) => {
     setParams(prev => ({
@@ -141,57 +187,60 @@ export function ABTestingFramework() {
     return true
   }, [params])
 
-  const calculateSize = useCallback(() => {
+  const calculateSize = useCallback(async () => {
     if (!validateForm()) return
 
     setIsCalculating(true)
-    setTimeout(() => {
-      try {
-        const size = calculateSampleSize(params.baselineRate, params.mde, params.confidence, params.power)
-        setSampleSize(size)
-        setActiveTab('run')
-      } catch (error) {
-        const errorMessage = error instanceof Error ? error.message : 'An unexpected error occurred'
-        setErrors({ form: errorMessage })
-      } finally {
-        setIsCalculating(false)
-      }
-    }, 1000) // Simulate calculation time
+    try {
+      // Ensure all values are numbers
+      const size = calculateSampleSize(
+        Number(params.baselineRate),
+        Number(params.mde),
+        Number(params.confidence),
+        Number(params.power)
+      )
+      if (size <= 0) throw new Error('Invalid sample size calculated')
+      setSampleSize(Number(size))
+      setActiveTab('run')
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'An unexpected error occurred'
+      setErrors({ form: errorMessage })
+    } finally {
+      setIsCalculating(false)
+    }
   }, [params, validateForm])
 
-  const runTest = useCallback(() => {
+  const runTest = useCallback(async () => {
     setIsLoadingResults(true)
     setIsRunningTest(true)
+
     try {
-      // Improved simulation with noise and more realistic variation
-      const noise = 0.1 // Add some random noise to make it more realistic
-      const controlData = Array(sampleSize).fill(0).map(() => 
-        Math.random() < (params.baselineRate * (1 + (Math.random() - 0.5) * noise)) ? 1 : 0
-      )
-      const variantData = Array(sampleSize).fill(0).map(() => 
-        Math.random() < (params.baselineRate * (1 + params.mde) * (1 + (Math.random() - 0.5) * noise)) ? 1 : 0
-      )
-      
+      if (sampleSize <= 0) throw new Error('Invalid sample size')
+
+      const [controlData, variantData] = await Promise.all([
+        generateTestData(Number(sampleSize), params.baselineRate),
+        generateTestData(Number(sampleSize), params.baselineRate * (1 + params.mde))
+      ])
+
       const testResults = analyzeResults(controlData, variantData, params.confidence)
-      if (!testResults || !isValidTestResults(testResults)) {
-        setErrors({ form: 'Failed to analyze results - invalid data format' })
-        return
+      if (!isValidTestResults(testResults)) {
+        throw new Error('Invalid test results format')
       }
-      
-      // Type assertion after validation
-      setResults(testResults as TestResults)
+      setResults({
+        ...testResults,
+        confidenceIntervals: {
+          control: [testResults.confidenceIntervals.control[0], testResults.confidenceIntervals.control[1]],
+          variant: [testResults.confidenceIntervals.variant[0], testResults.confidenceIntervals.variant[1]]
+        }
+      })
 
       const seqAnalysis = sequentialAnalysis(controlData, variantData, Math.floor(sampleSize / 10), params.confidence)
-      if (!seqAnalysis || !isValidSequentialAnalysis(seqAnalysis)) {
-        setErrors({ form: 'Failed to generate sequential analysis - invalid data format' })
-        return
+      if (!isValidSequentialAnalysis(seqAnalysis)) {
+        throw new Error('Invalid sequential analysis format')
       }
+      setSequentialData(seqAnalysis)
       
-      // Type assertion after validation
-      setSequentialData(seqAnalysis as SequentialAnalysis)
-
       setActiveTab('results')
-      
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Test failed to run'
       setErrors({ form: errorMessage })
@@ -201,8 +250,42 @@ export function ABTestingFramework() {
     }
   }, [sampleSize, params])
 
+  // Add login/logout button
+  const AuthButton = () => {
+    if (status === "loading") {
+      return <div>Loading...</div>;
+    }
+
+    if (session?.user) {
+      return (
+        <div className="flex items-center gap-4">
+          <span>{session.user.email}</span>
+          <button
+            onClick={() => signOut()}
+            className="px-4 py-2 bg-red-500 text-white rounded hover:bg-red-600"
+          >
+            Sign out
+          </button>
+        </div>
+      );
+    }
+
+    return (
+      <button
+        onClick={() => signIn('github')}
+        className="px-4 py-2 bg-gray-900 text-white rounded hover:bg-gray-800 flex items-center gap-2"
+      >
+        <GithubIcon className="w-5 h-5" />
+        Sign in with GitHub
+      </button>
+    );
+  };
+
   return (
     <div className="container mx-auto p-4">
+      <div className="flex justify-end p-4 border-b">
+        <AuthButton />
+      </div>
       <Card className="mb-8">
         <CardHeader>
           <CardTitle>A/B Testing Framework</CardTitle>
@@ -408,4 +491,11 @@ export function ABTestingFramework() {
     </div>
   )
 }
+
+// Simple Github icon component
+const GithubIcon = ({ className = "w-6 h-6" }) => (
+  <svg className={className} fill="currentColor" viewBox="0 0 24 24">
+    <path fillRule="evenodd" d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.531 1.032 1.531 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0112 6.844c.85.004 1.705.115 2.504.337 1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.019 10.019 0 0022 12.017C22 6.484 17.522 2 12 2z" clipRule="evenodd" />
+  </svg>
+);
 
