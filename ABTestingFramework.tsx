@@ -1,12 +1,32 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useCallback } from 'react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Button } from "@/components/ui/button"
-import { calculateSampleSize, analyzeResults, sequentialAnalysis } from './utils/statistics'
+import { calculateSampleSize, analyzeResults, sequentialAnalysis, validateInputs } from '@/utils/statistics'
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts'
+
+// Define types for your state
+interface TestResult {
+  controlRate: number
+  variantRate: number
+  relativeImprovement: number
+  pValue: number
+  significant: boolean
+  confidenceIntervals: {
+    control: [number, number]
+    variant: [number, number]
+  }
+  conclusion: string
+}
+
+interface SequentialDataPoint {
+  sampleSize: number
+  pValue: number
+  relativeImprovement: number
+}
 
 export default function ABTestingFramework() {
   const [params, setParams] = useState({
@@ -16,29 +36,76 @@ export default function ABTestingFramework() {
     power: 0.8
   })
   const [sampleSize, setSampleSize] = useState(0)
-  const [results, setResults] = useState(null)
-  const [sequentialData, setSequentialData] = useState([])
+  const [results, setResults] = useState<TestResult | null>(null)
+  const [sequentialData, setSequentialData] = useState<SequentialDataPoint[]>([])
+  const [errors, setErrors] = useState<Record<string, string | undefined>>({})
+  const [isLoadingResults, setIsLoadingResults] = useState(false)
+  const [isRunningTest, setIsRunningTest] = useState(false)
+  const [activeTab, setActiveTab] = useState('parameters')
 
-  const handleInputChange = (e) => {
-    setParams({ ...params, [e.target.name]: parseFloat(e.target.value) })
-  }
+  const handleInputChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const { name, value } = e.target
+    const numValue = parseFloat(value)
+    
+    if (isNaN(numValue)) {
+      setErrors(prev => ({ ...prev, [name]: 'Please enter a valid number' }))
+      return
+    }
+    
+    const error = validateInputs(numValue, params.mde, params.confidence, params.power)
+    if (error) {
+      setErrors(prev => ({ ...prev, [name]: error }))
+      return
+    }
+    
+    setParams(prev => ({ ...prev, [name]: numValue }))
+    setErrors(prev => ({ ...prev, [name]: undefined }))
+  }, [params])
 
   const calculateSize = () => {
     const size = calculateSampleSize(params.baselineRate, params.mde, params.confidence, params.power)
     setSampleSize(size)
   }
 
-  const runTest = () => {
-    // Simulate test data
-    const controlData = Array(sampleSize).fill(0).map(() => Math.random() < params.baselineRate ? 1 : 0)
-    const variantData = Array(sampleSize).fill(0).map(() => Math.random() < (params.baselineRate * (1 + params.mde)) ? 1 : 0)
+  const runTest = useCallback(async () => {
+    setIsLoadingResults(true)
+    setIsRunningTest(true)
 
-    const testResults = analyzeResults(controlData, variantData, params.confidence)
-    setResults(testResults)
+    try {
+      if (sampleSize <= 0) throw new Error('Invalid sample size')
 
-    const seqAnalysis = sequentialAnalysis(controlData, variantData, Math.floor(sampleSize / 10), params.confidence)
-    setSequentialData(seqAnalysis)
-  }
+      // Generate test data
+      const controlData = Array(sampleSize).fill(0).map(() => Math.random() < params.baselineRate ? 1 : 0)
+      const variantData = Array(sampleSize).fill(0).map(() => 
+        Math.random() < (params.baselineRate * (1 + params.mde)) ? 1 : 0
+      )
+
+      const rawResults = analyzeResults(controlData, variantData, params.confidence)
+      const testResults: TestResult = {
+        ...rawResults,
+        conclusion: rawResults.significant 
+          ? `The test showed a statistically significant difference with ${(rawResults.relativeImprovement * 100).toFixed(2)}% improvement`
+          : 'The test did not show a statistically significant difference'
+      }
+      setResults(testResults)
+
+      const seqAnalysis = sequentialAnalysis(
+        controlData, 
+        variantData, 
+        Math.floor(sampleSize / 10), 
+        params.confidence
+      )
+      setSequentialData(seqAnalysis)
+      
+      setActiveTab('results')
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Test failed to run'
+      setErrors({ form: errorMessage })
+    } finally {
+      setIsLoadingResults(false)
+      setIsRunningTest(false)
+    }
+  }, [sampleSize, params])
 
   return (
     <div className="container mx-auto p-4">

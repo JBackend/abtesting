@@ -63,3 +63,24 @@ export function sequentialAnalysis(controlData: number[], variantData: number[],
   return results;
 }
 
+export function validateInputs(
+  value: number,
+  mde: number,
+  confidence: number,
+  power: number
+): string | null {
+  if (value < 0 || value > 1) {
+    return 'Value must be between 0 and 1'
+  }
+  if (mde < 0 || mde > 1) {
+    return 'MDE must be between 0 and 1'
+  }
+  if (confidence < 0.8 || confidence > 1) {
+    return 'Confidence must be between 0.8 and 1'
+  }
+  if (power < 0.8 || power > 1) {
+    return 'Power must be between 0.8 and 1'
+  }
+  return null
+}
+
