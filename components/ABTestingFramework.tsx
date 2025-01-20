@@ -105,28 +105,22 @@ export function ABTestingFramework() {
   const [isLoadingResults, setIsLoadingResults] = useState(false)
 
   useEffect(() => {
-    // Initialize Mixpanel
-    mixpanel.init('acd65c75b29612117236847e0db6e5e9', {
-      debug: process.env.NODE_ENV !== 'production',
-      track_pageview: true,
-      persistence: 'localStorage'
-    });
-
-    // If user is authenticated, identify them
-    if (session?.user?.id) {
-      mixpanel.identify(session.user.id);
-      mixpanel.people.set({
-        '$email': session.user.email,
-        '$name': session.user.name,
-        '$avatar': session.user.image,
-        'last_login': new Date().toISOString(),
+    if (typeof window !== 'undefined') {  // Check if we're on client side
+      mixpanel.init('acd65c75b29612117236847e0db6e5e9', {
+        debug: process.env.NODE_ENV !== 'production',
+        track_pageview: true,
+        persistence: 'localStorage'
       });
 
-      // Track login
-      mixpanel.track('User Logged In', {
-        userId: session.user.id,
-        email: session.user.email
-      });
+      if (session?.user?.id) {
+        mixpanel.identify(session.user.id);
+        mixpanel.people.set({
+          '$email': session.user.email,
+          '$name': session.user.name,
+          '$avatar': session.user.image,
+          'last_login': new Date().toISOString(),
+        });
+      }
     }
   }, [session]);
 
@@ -280,6 +274,11 @@ export function ABTestingFramework() {
       </button>
     );
   };
+
+  // Show loading state
+  if (status === 'loading') {
+    return <div>Loading...</div>;
+  }
 
   return (
     <div className="container mx-auto p-4">
