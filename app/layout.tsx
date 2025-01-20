@@ -1,13 +1,14 @@
 import type { Metadata } from 'next'
 import './globals.css'
 import { Inter } from "next/font/google";
-import { NextAuthProvider } from "./providers";
+import { ThemeProvider } from 'next-themes'
+import { Providers } from './providers';
 
 const inter = Inter({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: 'v0 App',
-  description: 'Created with v0',
+  title: 'AB Testing Framework',
+  description: 'A framework for running AB tests',
 }
 
 export default function RootLayout({
@@ -18,7 +19,9 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body className={inter.className}>
-        <NextAuthProvider>{children}</NextAuthProvider>
+        <Providers>
+          {children}
+        </Providers>
       </body>
     </html>
   )

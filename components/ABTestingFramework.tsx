@@ -72,7 +72,23 @@ export default function ABTestingFrameworkWrapper() {
 }
 
 export function ABTestingFramework() {
-  const { data: session, status } = useSession();
+  const { data: session, status } = useSession()
+  const [isMounted, setIsMounted] = useState(false)
+
+  useEffect(() => {
+    setIsMounted(true)
+  }, [])
+  
+  // Don't render anything until mounted
+  if (!isMounted) {
+    return null
+  }
+
+  // Show loading state
+  if (status === 'loading') {
+    return <LoadingSpinner />
+  }
+
   const [params, setParams] = useState({
     baselineRate: 0.1,
     mde: 0.05,
@@ -104,10 +120,8 @@ export function ABTestingFramework() {
   const [isCalculating, setIsCalculating] = useState(false)
   const [isRunningTest, setIsRunningTest] = useState(false)
   const [isLoadingResults, setIsLoadingResults] = useState(false)
-  const [isMounted, setIsMounted] = useState(false);
 
   useEffect(() => {
-    setIsMounted(true);
     if (typeof window !== 'undefined') {
       mixpanel.init('acd65c75b29612117236847e0db6e5e9', {
         debug: process.env.NODE_ENV !== 'production',
@@ -134,19 +148,25 @@ export function ABTestingFramework() {
 
   // Track input changes
   const handleInputChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    const { name, value } = e.target;
-    // Convert string to number explicitly
-    const numValue = Number(value);
+    const { name, value } = e.target
+    const numValue = parseFloat(value)
     
-    const error = validateInputs(name, numValue, params, errors);
-    if (error) {
-      setErrors(prev => ({ ...prev, [name]: error }));
-      return;
+    // First validate if it's a valid number
+    if (isNaN(numValue)) {
+      setErrors(prev => ({ ...prev, [name]: 'Please enter a valid number' }))
+      return
     }
     
-    setParams(prev => ({ ...prev, [name]: numValue }));
-    setErrors(prev => ({ ...prev, [name]: undefined }));
-  }, [validateInputs]);
+    // Now pass the numeric values to validateInputs
+    const error = validateInputs(numValue, params.mde, params.confidence, params.power)
+    if (error) {
+      setErrors(prev => ({ ...prev, [name]: error }))
+      return
+    }
+    
+    setParams(prev => ({ ...prev, [name]: numValue }))
+    setErrors(prev => ({ ...prev, [name]: undefined }))
+  }, [params])
 
   // Track sequential analysis updates
   const handleSequentialUpdate = useCallback((data: SequentialAnalysis) => {
@@ -246,16 +266,6 @@ export function ABTestingFramework() {
       setIsRunningTest(false)
     }
   }, [sampleSize, params])
-
-  // Don't render anything until mounted
-  if (!isMounted) {
-    return null;
-  }
-
-  // Show loading state
-  if (status === 'loading') {
-    return <div>Loading...</div>;
-  }
 
   return (
     <div className="container mx-auto p-4">

@@ -1,36 +1,22 @@
 'use client'
 
+import { Button } from "@/components/ui/button"
 import { useSession, signIn, signOut } from 'next-auth/react'
 
 export function AuthButton() {
-  const { data: session, status } = useSession()
-
-  if (status === 'loading') {
-    return <div>Loading...</div>
-  }
+  const { data: session } = useSession()
 
   if (session) {
     return (
-      <div className="flex items-center gap-4">
-        <span>{session.user?.email}</span>
-        <button
-          onClick={() => signOut()}
-          className="px-4 py-2 bg-red-500 text-white rounded hover:bg-red-600"
-        >
-          Sign out
-        </button>
-      </div>
+      <Button onClick={() => signOut()}>
+        Sign out
+      </Button>
     )
   }
-
   return (
-    <button
-      onClick={() => signIn('github')}
-      className="px-4 py-2 bg-gray-900 text-white rounded hover:bg-gray-800 flex items-center gap-2"
-    >
-      <GithubIcon className="w-5 h-5" />
+    <Button onClick={() => signIn('github')}>
       Sign in with GitHub
-    </button>
+    </Button>
   )
 }
 
