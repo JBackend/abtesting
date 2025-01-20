@@ -1,11 +1,10 @@
-import ABTestingFramework from '@/components/ABTestingFramework'
+import { ABTestingFramework } from "@/components/ABTestingFramework";
 
 export default function Home() {
   return (
-    <div className="container mx-auto py-10">
-      <h1 className="text-3xl font-bold mb-8">A/B Testing Tool</h1>
+    <main className="min-h-screen p-4">
       <ABTestingFramework />
-    </div>
-  )
+    </main>
+  );
 }
 

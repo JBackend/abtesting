@@ -103,9 +103,11 @@ export function ABTestingFramework() {
   const [isCalculating, setIsCalculating] = useState(false)
   const [isRunningTest, setIsRunningTest] = useState(false)
   const [isLoadingResults, setIsLoadingResults] = useState(false)
+  const [isMounted, setIsMounted] = useState(false);
 
   useEffect(() => {
-    if (typeof window !== 'undefined') {  // Check if we're on client side
+    setIsMounted(true);
+    if (typeof window !== 'undefined') {
       mixpanel.init('acd65c75b29612117236847e0db6e5e9', {
         debug: process.env.NODE_ENV !== 'production',
         track_pageview: true,
@@ -244,36 +246,10 @@ export function ABTestingFramework() {
     }
   }, [sampleSize, params])
 
-  // Add login/logout button
-  const AuthButton = () => {
-    if (status === "loading") {
-      return <div>Loading...</div>;
-    }
-
-    if (session?.user) {
-      return (
-        <div className="flex items-center gap-4">
-          <span>{session.user.email}</span>
-          <button
-            onClick={() => signOut()}
-            className="px-4 py-2 bg-red-500 text-white rounded hover:bg-red-600"
-          >
-            Sign out
-          </button>
-        </div>
-      );
-    }
-
-    return (
-      <button
-        onClick={() => signIn('github')}
-        className="px-4 py-2 bg-gray-900 text-white rounded hover:bg-gray-800 flex items-center gap-2"
-      >
-        <GithubIcon className="w-5 h-5" />
-        Sign in with GitHub
-      </button>
-    );
-  };
+  // Don't render anything until mounted
+  if (!isMounted) {
+    return null;
+  }
 
   // Show loading state
   if (status === 'loading') {
@@ -283,7 +259,25 @@ export function ABTestingFramework() {
   return (
     <div className="container mx-auto p-4">
       <div className="flex justify-end p-4 border-b">
-        <AuthButton />
+        {session ? (
+          <div className="flex items-center gap-4">
+            <span>{session.user?.email}</span>
+            <button
+              onClick={() => signOut()}
+              className="px-4 py-2 bg-red-500 text-white rounded hover:bg-red-600"
+            >
+              Sign out
+            </button>
+          </div>
+        ) : (
+          <button
+            onClick={() => signIn('github')}
+            className="px-4 py-2 bg-gray-900 text-white rounded hover:bg-gray-800 flex items-center gap-2"
+          >
+            <GithubIcon className="w-5 h-5" />
+            Sign in with GitHub
+          </button>
+        )}
       </div>
       <Card className="mb-8">
         <CardHeader>
