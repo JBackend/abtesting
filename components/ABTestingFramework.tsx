@@ -15,6 +15,7 @@ import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip as RechartsToolti
 import { ErrorBoundary } from 'react-error-boundary'
 import mixpanel from 'mixpanel-browser'
 import { useSession, signIn, signOut } from 'next-auth/react'
+import { AuthButton } from './AuthButton'
 
 type TestResults = {
   sampleSize: number;
@@ -258,26 +259,8 @@ export function ABTestingFramework() {
 
   return (
     <div className="container mx-auto p-4">
-      <div className="flex justify-end p-4 border-b">
-        {session ? (
-          <div className="flex items-center gap-4">
-            <span>{session.user?.email}</span>
-            <button
-              onClick={() => signOut()}
-              className="px-4 py-2 bg-red-500 text-white rounded hover:bg-red-600"
-            >
-              Sign out
-            </button>
-          </div>
-        ) : (
-          <button
-            onClick={() => signIn('github')}
-            className="px-4 py-2 bg-gray-900 text-white rounded hover:bg-gray-800 flex items-center gap-2"
-          >
-            <GithubIcon className="w-5 h-5" />
-            Sign in with GitHub
-          </button>
-        )}
+      <div className="flex justify-end p-4">
+        <AuthButton />
       </div>
       <Card className="mb-8">
         <CardHeader>
